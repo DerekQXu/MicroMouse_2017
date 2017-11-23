@@ -2,39 +2,32 @@
 #include "QEI.h"
 //#define ENC_PER_REV 360
 
-//IR LED PINOUTS
-PinName
-    LED_left_pin = PB_7,
-    LED_front_left_pin = PB_0, 
-    LED_front_right_pin = PC_11,
-    LED_right_pin = PC_10;
+//IR LED init
+DigitalOut
+    LED_left(PB_7),
+    LED_frontLeft(PB_0),
+    LED_frontRight(PC_11),
+    LED_right(PC_10);
+
+//IR RECEIVER init
+AnalogIn
+    REC_left(PC_0),
+    REC_frontLeft(PA_4),
+    REC_frontRight(PC_1),
+    REC_right(PA_0);
     
-DigitalOut 
-    LED_left(LED_left_pin),
-    LED_front_left(LED_front_left_pin),
-    LED_front_right(LED_front_right_pin),
-    LED_right(LED_right_pin);
-
-//IR RECEIVER PINOUTS
-PinName
-    receiver_left = PC_0,
-    receiver_front_left = PC_1,
-    receiver_front_right = PA_4,
-    receiver_right = PA_0;
-
-
+float
+    REC_left_val,
+    REC_frontLeft_val,
+    REC_frontRight_val,
+    REC_right_val;
+    
 //NEW CONSTANTS
 float threshold = 0.5; // TODO: find optimal threshold to detect wall (b/w 0 and 1)
 float baseline_front_left = 0;
 float baseline_front_right = 0;
 float baseline_left = 0;
 float baseline_right = 0;
-
-//ANALOGLN INITIALIZATION
-AnalogIn input_receiver_left(receiver_left);
-AnalogIn input_receiver_right(receiver_right);
-AnalogIn input_receiver_front_left(receiver_front_left);
-AnalogIn input_receiver_front_right(receiver_front_right);
 
 PinName mLencA = PA_15,
         mLencB = PB_3,
@@ -124,11 +117,6 @@ void systick_forward()
     //update speeds
     LSpeed = LSpeed + speedDiff;
     RSpeed = RSpeed - speedDiff;
-    //FOR DEBUGGING:
-    //pc.printf("Modified LSpeed: %f\t", LSpeed);
-    //pc.printf("Modified RSpeed: %f\n", RSpeed);
-    //pc.printf("ELD: %d\t", ELD);
-    //pc.printf("ERD: %d\n", ERD);
 }
 
 
@@ -139,8 +127,6 @@ void stop()
     MRF.write(0);
     MRB.write(0);
 }
-
-//int fwdL = 0, fwdR = 0;
 
 void forward(int n)
 {
@@ -198,17 +184,20 @@ int main()
     }
     timer.stop();
 */
-    float IRfl, IRfr, IRr, IRl;
-    LED_left = 1; 
-    LED_front_right = 1; 
-    LED_front_left = 1; 
-    LED_right = 1; 
+    LED_left = 1;
+    LED_frontRight = 1;
+    LED_frontLeft = 1;
+    LED_right = 1;
     while(1)
     {
-        IRl = input_receiver_left.read();
-        IRfr = input_receiver_front_right.read(); 
-        IRfl = input_receiver_front_left.read(); 
-        IRr = input_receiver_right.read(); 
-        pc.printf("left: %f\tfront left: %f\tfront right: %f\tright: %f\n", IRl, IRfl, IRfr, IRr);
+        REC_left_val = REC_left.read();
+        REC_frontRight_val = REC_frontRight.read();
+        REC_frontLeft_val = REC_frontLeft.read();
+        REC_right_val = REC_right.read();
+        pc.printf("left: %f\tfront left: %f\tfront right: %f\tright: %f\n",
+                REC_left_val,
+                REC_frontRight_val,
+                REC_frontLeft_val,
+                REC_right_val);
     }
 }
