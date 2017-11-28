@@ -293,9 +293,7 @@ void setup_IR(float& cL, float& cR)
   TcFL /= SAMPLES;
   cR = TcR;
   cL = TcL;
-  cFR = TcR;
-  cFL = TcL;
-  IR_threshold = cFR + cFL;
+  IR_threshold = TcFR + TcFL;
 }
 
 void read_IR()
@@ -308,12 +306,12 @@ void read_IR()
 
 bool detect_wall(){
     float reading = REC_val_frontRight + REC_val_frontRight;
-    return reading < IR_threshold ? return false : return true;
+    return (reading < IR_threshold) ? false : true;
 }
 
 //0 is false; 1 is true
 bool detect_isRight(){
-    return (REC_val_left - IR_left_threshold) > (REC_val_right - IR_right_threshold) ? return true : return false;
+    return (REC_val_left - IR_left_threshold) > (REC_val_right - IR_right_threshold) ? true : false;
 }
 
 void stop()
@@ -342,9 +340,10 @@ int main()
         read_IR();
         wait(0.1f);
         //move
-        if (detect_wall())
+        if (detect_wall()){
             stop();
-            turn(detect_dir());
+            turn(detect_isRight());
+        }
         else
             forward(1);
     }
