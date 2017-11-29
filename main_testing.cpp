@@ -2,8 +2,9 @@
 #include "QEI.h"
 #define RECEIVER_THRESHOLD 0.1 //not used atm
 #define SAMPLES 20
-#define MAX_SPEED 0.1f
+#define MAX_SPEED 0.2f
 float defaultSpeed = MAX_SPEED;
+bool flag = true;
 
 ////MODIFICATIONS FROM MAIN_REVISED.CPP////
 // 1. added/revised turning and stopping code (not tested)
@@ -128,10 +129,11 @@ QEI wheelR(mRencA, mRencB, NC, 624, QEI::X4_ENCODING);
 // Turn immediately to direction dir (pos right, left neg)
 void turn(bool isRight){
     //right now turning with time not encoder or IR
+    flag = false;
     Timer temp;
     temp.start();
     int baseline = temp.read_ms();
-    int turn_time = 2000;
+    int turn_time = 800;
     int diff;
     while (temp.read_ms() - baseline < turn_time){
         //turn right
@@ -148,10 +150,11 @@ void turn(bool isRight){
             MRF.write(MAX_SPEED); //-Kp_turn*diff);
             MRB.write(0);
         }
-        diff = wheelR.getPulses() - wheelL.getPulses();
-        pc.printf("diff: %d\n", diff); //to debug and determine proper Kp
+        //diff = wheelR.getPulses() - wheelL.getPulses();
+        //pc.printf("diff: %d\n", diff); //to debug and determine proper Kp
     }
     temp.stop();
+    flag =true;
 }
 
 float P_Controller(float error, float Kp)
@@ -227,6 +230,8 @@ void update_IR()
 
 void systick_forward_IR()
 {
+    if (!flag)
+        return;
     //update IR variables
     update_IR();
     //find error
@@ -341,8 +346,16 @@ int main()
         wait(0.1f);
         //move
         if (detect_wall()){
+            Timer temp;
+            temp.start();
+            int baseline = temp.read_ms();
+            while (temp.read_us()-baseline < 500){int x;}
+            temp.stop();
+            /*
             stop();
             turn(detect_isRight());
+            wait(0.001);
+            */
         }
         else
             forward(1);
