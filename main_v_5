@@ -29,7 +29,7 @@ void update_enc();
 void systick_forward();
 void systick_forward_default(float error, float correction_factor, float Kp, float Kd, float Ki, float& integrator, float decayFactor, float& prevError, Timer& timer);
 void update_IR();
-
+void systick_forward_enc();
 void forward(int n);
 void forward_until_wall();
 void setup_IR(float& cL, float& cR);
@@ -48,12 +48,12 @@ int wall_state = 0;         // 1 for missing no walls, 2 for missing left wall,
 ///////////////////////
 // K Values
 ///////////////////////
-float Kp_enc = 3,
+float Kp_enc = 6,
       Ki_enc = 2,
       Kd_enc = 20,
       Kp_IR = 0.5f,
       Ki_IR = 0,
-      Kd_IR = 30;
+      Kd_IR = 15;
 
 ///////////////////////
 // Speed Variables
@@ -155,21 +155,21 @@ QEI wheelR(mRencA, mRencB, NC, 624, QEI::X4_ENCODING);
 
 // Turn immediately to direction dir (pos right, left neg)
 void turn(bool left){
-    float left_pulse = -wheelL.getPulses();
-    float right_pulse = wheelR.getPulses();
-    while(-wheelL.getPulses()-left_pulse < 180 && wheelR.getPulses()-right_pulse < 180){
+    int left_pulse = -wheelL.getPulses();
+    int right_pulse = wheelR.getPulses();
+    while(abs(-wheelL.getPulses()-left_pulse) + abs(wheelR.getPulses()-right_pulse) <= 365){
         //turn right
         if (!left){
-            MLF.write(LSpeed); //-Kp_turn*diff);
+            MLF.write(defaultSpeed); //-Kp_turn*diff);
             MLB.write(0);
-            MRB.write(RSpeed); //-Kp_turn*diff);
+            MRB.write(defaultSpeed); //-Kp_turn*diff);
             MRF.write(0);
         }
         //turn left
         else{
-            MLB.write(LSpeed); //-Kp_turn*diff);
+            MLB.write(defaultSpeed); //-Kp_turn*diff);
             MLF.write(0);
-            MRF.write(RSpeed); //-Kp_turn*diff);
+            MRF.write(defaultSpeed); //-Kp_turn*diff);
             MRB.write(0);
         }
         //diff = wheelR.getPulses() - wheelL.getPulses();
@@ -180,6 +180,7 @@ void turn(bool left){
     MLF.write(0);
     MRB.write(0);
     MRF.write(0);
+    wait(0.1f);
 }
 
 float P_Controller(float error, float Kp)
@@ -234,7 +235,25 @@ void update_IR()
     IR_leftD = IR_left - REC_left_baseline;
     IR_rightD = IR_right - REC_right_baseline;
 }
-
+void systick_forward_enc()
+{
+    //find error (can optimize later)
+    //NOTE: ELD and ERD are both positive if spinning forward.
+    int error = enc_rightD - enc_leftD;
+    //find correction
+    float speedDiff = MAX_SPEED* correction_factor_enc * (P_Controller(error, Kp_enc) + I_Controller(error,Ki_enc,integrator_enc,decayFactor_enc) + D_Controller(error, Kd_enc, prevError_enc, timer_enc));
+    //update speeds
+      if (RSpeed > MAX_SPEED)
+        RSpeed = MAX_SPEED;
+      if (LSpeed > MAX_SPEED)
+        LSpeed = MAX_SPEED;
+      if (LSpeed < 0)
+        LSpeed = 0;
+      if (RSpeed < 0)
+        RSpeed = 0;
+    LSpeed = LSpeed + speedDiff;
+    RSpeed = RSpeed - speedDiff; // right wheel runs little faster than left
+}
 void systick_forward_default(float error, float correction_factor, float Kp, float Kd, float Ki, float& integrator, float decayFactor, float& prevError, Timer& timer)
 {
     //NOTE: Multiplied by MAX_SPEED because the speed can only be in range 0 - MAX_SPEED, whereas
@@ -257,6 +276,7 @@ void systick_forward()
 {
     //update IR variables
     update_IR();
+    update_enc();
     if (!detect_missing_wall())
     {   
         if(wall_state != 1) 
@@ -264,6 +284,7 @@ void systick_forward()
             wall_state = 1;     
             integrator_IR = 0;
             prevError_IR = 0;
+            timer_IR.reset();
         }
         systick_forward_default(IR_rightD - IR_leftD, correction_factor_IR, Kp_IR, Kd_IR, Ki_IR, integrator_IR, decayFactor_IR, prevError_IR, timer_IR);
     }
@@ -274,6 +295,7 @@ void systick_forward()
             wall_state = 2;
             integrator_IR = 0;
             prevError_IR = 0;
+            timer_IR.reset();
         }
         systick_forward_default(IR_rightD, correction_factor_IR, Kp_IR, Kd_IR, Ki_IR, integrator_IR, decayFactor_IR, prevError_IR, timer_IR);
     }
@@ -284,6 +306,7 @@ void systick_forward()
             wall_state = 3;
             integrator_IR = 0;
             prevError_IR = 0;
+            timer_IR.reset();
         }
         systick_forward_default(IR_leftD, correction_factor_IR, Kp_IR, Kd_IR, Ki_IR, integrator_IR, decayFactor_IR, prevError_IR, timer_IR);
     }
@@ -293,11 +316,11 @@ void systick_forward()
         if(wall_state != 4)
         {
             wall_state = 4;
-            integrator_IR = 0;
-            prevError_IR = 0;
+            integrator_enc = 0;
+            prevError_enc = 0;
+            timer_enc.reset();
         }
-        update_enc();
-        systick_forward_default(enc_rightD - enc_leftD, correction_factor_enc, Kp_enc, Kd_enc, Ki_enc, integrator_enc, decayFactor_enc, prevError_enc, timer_enc);
+        systick_forward_enc();
     }
 
 }
@@ -344,7 +367,7 @@ void setup_IR(float& cL, float& cR)
 
 bool detect_wall(){
     float reading = REC_val_frontLeft + REC_val_frontRight;
-    return (reading >= REC_front_threshold);
+    return (reading >= REC_front_threshold * 0.95f);
 }
 
 //0 is false; 1 is true
@@ -382,12 +405,20 @@ int main()
 {
     // general setup
     setup_IR(REC_left_baseline, REC_right_baseline);
-    //setup_enc();
+    setup_enc();
     bool previous_forward = false;  // forward or not
-    
+    turn(true);
+    turn(true); 
+    Systicker.attach(&systick_forward,0.01f);
+    wait(1);
+   // int left_pulse = -wheelL.getPulses();
+   // int right_pulse = wheelR.getPulses();
+   // while(-wheelL.getPulses()-left_pulse < 180 && wheelR.getPulses()-right_pulse < 180)
+   // { pc.printf("%d\t%d\n", -wheelL.getPulses()-left_pulse, wheelR.getPulses()-right_pulse); }
+
    while(1){
         //move
-        if (detect_wall()){
+/*        if (detect_wall()){
             previous_forward = false;
             Systicker.attach(NULL,0.01f);
             stop();
@@ -397,9 +428,8 @@ int main()
             }
             else
                 turn(missing_left_wall);    // will turn left if true.
-                
         }
-        else{
+        else{*/
             if(!previous_forward)
             {   
                 previous_forward = true;
@@ -407,7 +437,7 @@ int main()
                 Systicker.attach(&systick_forward,0.01f);
             }
             forward(1);
-        }
+     //   }
 
     }
     timer_enc.stop();
