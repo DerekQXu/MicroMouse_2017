@@ -1,3 +1,4 @@
+
 #include "mbed.h"
 #include "QEI.h"
 #define RECEIVER_THRESHOLD 0.1 //not used atm
@@ -5,18 +6,6 @@
 #define SAMPLES 20
 #define MAX_SPEED 0.2f
 float defaultSpeed = MAX_SPEED * 0.75f;
-
-////MODIFICATIONS FROM MAIN_REVISED.CPP////
-// 1. added/revised turning and stopping code (not tested)
-// 2. removed unused code
-// 3. minor cleanup
-/////////////TO DO/////////////////
-// 1. (Optional) Tune encoder so that it goes straight with IR enabled
-// 2. Check if dt in D_controller needs 10^(-6) multiplier because us.
-// 3. Tune all K values
-// 4. Tune stopping
-// 5. Naming conventions becoming ambiguous again (thresholds in IR setup is actually BASELINEs)
-///////////////////////////////////
 
 ///////////////////////
 // Function Declarations
@@ -26,17 +15,18 @@ float P_Controller(float error, float Kp);
 float I_Controller(float error, float Ki, float& integrator, float decayFactor);
 float D_Controller(float error, float Kd, float& prevError );
 void update_enc();
-void systick_forward();
-void systick_forward_default(float error, float correction_factor, float Kp, float Kd, float Ki, float& integrator, float decayFactor, float& prevError, Timer& timer);
 void update_IR();
-void systick_forward_enc();
-void forward(int n);
-void forward_until_wall();
 void setup_IR(float& cL, float& cR);
-bool detect_wall();
-bool detect_missing_wall();
-void stop();
 void setup_enc();
+void systick_forward_default(float error, float correction_factor, float Kp, float Kd, float Ki, float& integrator, float decayFactor, float& prevError, Timer& timer);
+void systick_forward();
+void systick_forward_enc();
+bool detect_wall_front();
+bool detect_missing_wall();     // side walls
+void forward_until_wall();      // seems not used
+void forward(int n);
+void stop();
+
 
 ///////////////////////
 // flags
@@ -114,6 +104,7 @@ int enc_leftD, enc_rightD,
 /////////////////////////
 float
     IR_leftD, IR_rightD,
+    IR_frontLeft, IR_frontRight,
     IR_left, IR_right,
     IR_left_prev,
     IR_right_prev;              // IR_leftD = IR value difference of left motor
@@ -126,15 +117,6 @@ float
     REC_left_baseline = 0,
     REC_right_baseline = 0,
     REC_front_threshold = 0;
-    
-////////////////////////
-// IR Values/Readings
-////////////////////////
-float
-    REC_val_left,
-    REC_val_right,
-    REC_val_frontLeft,
-    REC_val_frontRight;         // IR readings
 
 ///////////////////////
 // Timer/Serial
@@ -154,20 +136,21 @@ QEI wheelR(mRencA, mRencB, NC, 624, QEI::X4_ENCODING);
 //////////////////////
 
 // Turn immediately to direction dir (pos right, left neg)
+// Shouldn't the dir mapping in the comment be: (1: for left, 0 for right)... code is right tho
 void turn(bool left){
-    int left_pulse = -wheelL.getPulses();
+    int left_pulse = wheelL.getPulses();
     int right_pulse = wheelR.getPulses();
-    while(abs(-wheelL.getPulses()-left_pulse) + abs(wheelR.getPulses()-right_pulse) <= 365){
+    while(abs(wheelL.getPulses()-left_pulse) + abs(wheelR.getPulses()-right_pulse) <= 365){
         //turn right
-        if (!left){
-            MLF.write(defaultSpeed); //-Kp_turn*diff);
+        if (left){
+            MLF.write(defaultSpeed*0.9f); //-Kp_turn*diff);
             MLB.write(0);
             MRB.write(defaultSpeed); //-Kp_turn*diff);
             MRF.write(0);
         }
         //turn left
         else{
-            MLB.write(defaultSpeed); //-Kp_turn*diff);
+            MLB.write(defaultSpeed*0.9f); //-Kp_turn*diff);
             MLF.write(0);
             MRF.write(defaultSpeed); //-Kp_turn*diff);
             MRB.write(0);
@@ -228,8 +211,8 @@ void update_IR()
 {
     //update left and right IR
     IR_left = REC_left.read();
-    REC_val_frontRight = REC_frontRight.read();
-    REC_val_frontLeft = REC_frontLeft.read();
+    IR_frontRight = REC_frontRight.read();
+    IR_frontLeft = REC_frontLeft.read();
     IR_right = REC_right.read();
     //find difference compared to calibrated/setup threshold
     IR_leftD = IR_left - REC_left_baseline;
@@ -277,8 +260,10 @@ void systick_forward()
     //update IR variables
     update_IR();
     update_enc();
+    //missing no walls
     if (!detect_missing_wall())
     {   
+        
         if(wall_state != 1) 
         {
             wall_state = 1;     
@@ -365,16 +350,18 @@ void setup_IR(float& cL, float& cR)
     
 }
 
-bool detect_wall(){
-    float reading = REC_val_frontLeft + REC_val_frontRight;
-    pc.printf("%f\t| %f\n", reading, REC_front_threshold);
-    return (reading >= REC_front_threshold* 0.95);
+bool detect_wall_front(){
+    float reading = IR_frontLeft + IR_frontRight;
+    //pc.printf("%f\t| %f\n", reading, REC_front_threshold);
+    return (reading >= REC_front_threshold* 0.95f);
 }
 
 //0 is false; 1 is true
 bool detect_missing_wall(){
-    missing_left_wall = (REC_val_left <= REC_left_baseline * .7f);
-    missing_right_wall = (REC_val_right <= REC_right_baseline * .7f);
+    //Derek had .7f here
+    //Misheel made it to 1f on Thu
+    missing_left_wall = (IR_left <= (REC_left_baseline * .7f));
+    missing_right_wall = (IR_right <= (REC_right_baseline * .7f));
     return (missing_left_wall || missing_right_wall);
 }
 
@@ -404,16 +391,21 @@ void setup_enc()
 }
 
 void turn_180(){
-    int left_pulse = -wheelL.getPulses();
+    int left_pulse = wheelL.getPulses();
     int right_pulse = wheelR.getPulses();
-    int diff;
-    while(abs(-wheelL.getPulses()-left_pulse) + abs(wheelR.getPulses()-right_pulse) <= 760){
+    int left_pulse_prev = left_pulse;
+    int right_pulse_prev = right_pulse;
+    int diff = 0;
+    while(abs(wheelL.getPulses()-left_pulse) + abs(wheelR.getPulses()-right_pulse) <= 780){
         //turn right
-        MLF.write(defaultSpeed+diff*0.0001f); //-Kp_turn*diff);
-        MLB.write(0);
-        MRB.write(defaultSpeed-diff*0.0001f); //-Kp_turn*diff);
-        MRF.write(0);
-        diff = abs(wheelR.getPulses()) - abs(wheelL.getPulses());
+        MRF.write(defaultSpeed+diff*0.0001f); //-Kp_turn*diff);
+        MRB.write(0);
+        MLB.write(defaultSpeed-diff*0.0001f); //-Kp_turn*diff);
+        MLF.write(0);
+        wait(0.01f);
+        diff = abs(wheelR.getPulses()-right_pulse_prev) - abs(wheelL.getPulses()-left_pulse_prev);
+        right_pulse_prev = wheelR.getPulses();
+        left_pulse_prev = wheelL.getPulses();
         //pc.printf("diff: %d\n", diff); //to debug and determine proper Kp
     }
     
@@ -439,28 +431,17 @@ int main()
 
    while(1){
         //move
-        pc.printf("iteration\n");
-        if (detect_wall()){
-            Systicker.attach(NULL,0.01f);
+        //pc.printf("iteration\n");
+        //pc.printf("Wall state: %d\n", wall_state);
+        
+        if (detect_wall_front()){
+            //Systicker.attach(NULL,0.01f);
             stop();
-            if(!missing_left_wall && !missing_right_wall)
-            {
-                turn_180();
-            }
-            else{
-                turn(missing_left_wall);    // will turn left if true.
-                wait(0.5f);
-                Timer temp; //move forward a little bit
-                temp.start();
-                int baseline = temp.read_ms();
-                int go_time = 400;
-                while (temp.read_ms() - baseline < go_time){
-                    forward(1);
-                }
-                temp.stop();
-            }
+            turn(missing_left_wall);    // will turn left if true.
+            wait(0.5f);
+            
             //timer_IR.reset();
-            Systicker.attach(&systick_forward,0.01f);
+            //Systicker.attach(&systick_forward,0.01f);
         }
         forward(1);
     }
