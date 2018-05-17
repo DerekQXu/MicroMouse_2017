@@ -1,7 +1,5 @@
-
 #include "mbed.h"
 #include "QEI.h"
-#define RECEIVER_THRESHOLD 0.1 //not used atm
 #define ENC_PER_REV 360
 #define SAMPLES 20
 #define MAX_SPEED 0.2f
@@ -23,7 +21,6 @@ void systick_forward();
 void systick_forward_enc();
 bool detect_wall_front();
 bool detect_missing_wall();     // side walls
-void forward_until_wall();      // seems not used
 void forward(int n);
 void stop();
 
@@ -32,7 +29,7 @@ void stop();
 // flags
 ///////////////////////
 bool missing_left_wall = false, missing_right_wall = false;
-int wall_state = 0;         // 1 for missing no walls, 2 for missing left wall, 
+int wall_state = 0;         // 1 for missing no walls, 2 for missing left wall,
                             // 3 for missing right wall, 4 for missing both walls
 
 ///////////////////////
@@ -66,31 +63,24 @@ float correction_factor_IR = 1;
 //////////////////////
 // Pin definitions
 /////////////////////
-DigitalOut LED_left(PB_7);
-DigitalOut LED_frontLeft(PB_0);
-DigitalOut LED_frontRight(PC_11);
-DigitalOut LED_right(PC_10);
+DigitalOut IR_L(PB_5);
+DigitalOut IR_LF(PB_4);
+DigitalOut IR_LS(PB_15);
+DigitalOut IR_R(PB_10);
+//DigitalOut IR_RF(PB_11);
+DigitalOut IR_RS(PB_14);
 
-AnalogIn REC_left(PC_0);
-AnalogIn REC_frontLeft(PC_1);
-AnalogIn REC_frontRight(PA_4);
-AnalogIn REC_right(PA_0);
+AnalogIn REC_L(PC_0);
+AnalogIn REC_LF(PC_1);
+AnalogIn REC_LS(PB_1);
+AnalogIn REC_R(PA_4);
+AnalogIn REC_RF(PA_5);
+AnalogIn REC_RS(PB_0);
 
-PinName mLencA = PA_15,
-        mLencB = PB_3,
-        mRencA = PA_1,
-        mRencB = PC_4,
-        usbTX = PA_2,
-        usbRX = PA_3,
-        mLB = PC_7,
-        mLF = PB_10,
-        mRF = PA_7,
-        mRB = PB_6;
-        
-PwmOut  MLF(mLF),
-        MRF(mRF),
-        MLB(mLB),
-        MRB(mRB);
+PwmOut  MLF(PB_7),
+        MRF(PB_9),
+        MLB(PB_6),
+        MRB(PB_8);
 
 /////////////////////////
 // Encoder Variables
@@ -123,13 +113,13 @@ float
 ///////////////////////
 Ticker Systicker;
 Timer timer_enc, timer_IR;
-Serial pc(usbTX, usbRX);
+Serial pc(PA_9, PA_10);
 
 ///////////////////////
 // Motor init
 ///////////////////////
-QEI wheelL(mLencA, mLencB, NC, 624, QEI::X4_ENCODING);
-QEI wheelR(mRencA, mRencB, NC, 624, QEI::X4_ENCODING);
+QEI wheelL(PA_15, PB_3, NC, 624, QEI::X4_ENCODING);
+QEI wheelR(PA_0, PA_1, NC, 624, QEI::X4_ENCODING);
 
 //////////////////////
 // FUNCTIONS
@@ -158,7 +148,7 @@ void turn(bool left){
         //diff = wheelR.getPulses() - wheelL.getPulses();
         //pc.printf("diff: %d\n", diff); //to debug and determine proper Kp
     }
-    
+
     MLB.write(0);
     MLF.write(0);
     MRB.write(0);
@@ -210,10 +200,10 @@ void update_enc()
 void update_IR()
 {
     //update left and right IR
-    IR_left = REC_left.read();
-    IR_frontRight = REC_frontRight.read();
-    IR_frontLeft = REC_frontLeft.read();
-    IR_right = REC_right.read();
+    IR_L = REC_L.read();
+    //IR_RF = REC_RF.read();
+    IR_LF = REC_LF.read();
+    IR_R = REC_R.read();
     //find difference compared to calibrated/setup threshold
     IR_leftD = IR_left - REC_left_baseline;
     IR_rightD = IR_right - REC_right_baseline;
@@ -262,11 +252,11 @@ void systick_forward()
     update_enc();
     //missing no walls
     if (!detect_missing_wall())
-    {   
-        
-        if(wall_state != 1) 
+    {
+
+        if(wall_state != 1)
         {
-            wall_state = 1;     
+            wall_state = 1;
             integrator_IR = 0;
             prevError_IR = 0;
             timer_IR.reset();
@@ -274,7 +264,7 @@ void systick_forward()
         systick_forward_default(IR_rightD - IR_leftD, correction_factor_IR, Kp_IR, Kd_IR, Ki_IR, integrator_IR, decayFactor_IR, prevError_IR, timer_IR);
     }
     else if(missing_left_wall)
-    {   
+    {
         if(wall_state != 2)
         {
             wall_state = 4;
@@ -285,7 +275,7 @@ void systick_forward()
         systick_forward_enc();
     }
     else if(missing_right_wall)
-    {   
+    {
         if(wall_state != 3)
         {
             wall_state = 4;
@@ -321,23 +311,26 @@ void forward(int n)
 
 void setup_IR(float& cL, float& cR)
 {
-    LED_left = 1;
-    LED_frontRight = 1;
-    LED_frontLeft = 1;
-    LED_right = 1;
-    wait(2);
+    IR_L = 1;
+    //IR_RF = 1;
+    IR_LF = 1;
+    IR_R = 1;
+    IR_RS = 1;
+    IR_LS = 1;
     
+    wait(2);
+
     float TcR = 0;
     float TcL = 0;
     float TcFR = 0;
     float TcFL = 0;
-    
+
     for(int i= 0; i < SAMPLES; i++)
     {
-        TcR += REC_right.read();
-        TcL += REC_left.read();
-        TcFR += REC_frontRight.read();
-        TcFL += REC_frontLeft.read();
+       TcR += REC_R.read();
+       TcL += REC_L.read();
+       TcFR += REC_RF.read();
+       TcFL += REC_LF.read();
     }
     TcR /= SAMPLES;
     TcL /= SAMPLES;
@@ -347,7 +340,7 @@ void setup_IR(float& cL, float& cR)
     cL = TcL;
     REC_front_threshold = TcFR + TcFL;
     timer_IR.start();
-    
+
 }
 
 bool detect_wall_front(){
@@ -372,9 +365,9 @@ void stop()
     int baseline = temp.read_ms();
     int stop_time = 10;
     while (temp.read_ms() - baseline < stop_time){
-        MLB.write(0.5f); 
+        MLB.write(0.5f);
         MLF.write(0);
-        MRB.write(0.5f); 
+        MRB.write(0.5f);
         MRF.write(0);
     }
     MLB.write(0);
@@ -408,7 +401,7 @@ void turn_180(){
         left_pulse_prev = wheelL.getPulses();
         //pc.printf("diff: %d\n", diff); //to debug and determine proper Kp
     }
-    
+
     MLB.write(0);
     MLF.write(0);
     MRB.write(0);
@@ -417,8 +410,12 @@ void turn_180(){
 }
 int main()
 {
-    // general setup
+
+    
+    // ==general setup
+    
     setup_IR(REC_left_baseline, REC_right_baseline);
+    
     setup_enc();
     turn(true);
     turn(true);
@@ -433,13 +430,13 @@ int main()
         //move
         //pc.printf("iteration\n");
         //pc.printf("Wall state: %d\n", wall_state);
-        
+
         if (detect_wall_front()){
             //Systicker.attach(NULL,0.01f);
             stop();
             turn(IR_left < IR_right);    // will turn left if true.
             wait(0.5f);
-            
+
             //timer_IR.reset();
             //Systicker.attach(&systick_forward,0.01f);
         }
@@ -447,4 +444,5 @@ int main()
     }
     timer_enc.stop();
     timer_IR.stop();
+    
 }
