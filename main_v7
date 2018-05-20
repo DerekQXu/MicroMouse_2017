@@ -1,0 +1,278 @@
+#include <queue>
+#include <stdint.h>
+
+#define ROW_NUMBER 16
+#define COLUMN_NUMBER 16
+#define DELAY_TIME 10
+
+// track the x and y locations
+int currentX;
+int currentY;
+
+//general functions
+enum Direction
+{
+    UP = 0,
+    LEFT = 1,
+    DOWN = 2,
+    RIGHT = 3
+};
+
+Direction currentDirection, nextDirection;
+struct mapCell
+{
+    bool upWall;
+    bool downWall;
+    bool rightWall;
+    bool leftWall;
+    uint16_t floodFillValue;
+};
+
+// map data structures
+mapCell map[COLUMN_NUMBER][ROW_NUMBER];
+bool discoveredCells[COLUMN_NUMBER][ROW_NUMBER];
+uint16_t currentFloodFillValue;
+
+mapCell* tempCell;
+int tempX;
+int tempY;
+
+// breadth first search data structures
+std::queue <mapCell*> breadthFirstSearchQ;
+std::queue <int> tempXQ;
+std::queue <int> tempYQ;
+
+// helper function
+Direction abs2rel(Direction ID)
+{
+    switch (currentDirection){
+        case (UP):
+            return ID;
+        case (RIGHT):
+            return (Direction)(((int)ID+1)%4);
+        case (DOWN):
+            return (Direction)(((int)ID+2)%4);
+        case (LEFT):
+            return (Direction)(((int)ID+3)%4);
+    }
+    return UP;
+}
+Direction rel2abs(Direction ID)
+{
+    return (Direction)(((int)ID+currentDirection)%4);
+}
+// hardware function
+bool checkWall_hw(Direction ID){
+    return false; //TODO
+}
+void move_hw(){
+    ; //TODO
+}
+void turn_hw(Direction ID){
+    ; //TODO
+}
+bool checkWall(Direction ID){
+    return checkWall_hw(abs2rel(ID));
+}
+bool moveMouse(Direction ID){
+    // pseudo function
+    turn_hw(abs2rel(ID));
+    move_hw();
+    return true;
+}
+bool isEnd(){
+    if (currentX == COLUMN_NUMBER/2 && currentY == ROW_NUMBER/2)
+    return false;
+}
+// floodfill implementation
+void floodFillHelper()
+{
+    discoveredCells[tempX][tempY] = true;
+    map[tempX][tempY].floodFillValue = currentFloodFillValue;
+    breadthFirstSearchQ.push(&(map[tempX][tempY]));
+    tempXQ.push(tempX);
+    tempYQ.push(tempY);
+}
+void floodFill()
+{
+    for (int i = 0; i < COLUMN_NUMBER; ++i)
+        for (int j = 0; j < ROW_NUMBER; ++j)
+            discoveredCells[i][j] = false;
+
+    discoveredCells[tempX][tempY] = true;
+    tempX = COLUMN_NUMBER / 2;
+    tempY = COLUMN_NUMBER / 2;
+    currentFloodFillValue = 0;
+
+    floodFillHelper();
+
+    while (!breadthFirstSearchQ.empty())
+    {
+        currentFloodFillValue = (breadthFirstSearchQ.front())->floodFillValue + 1;
+        tempX = tempXQ.front();
+        tempY = tempYQ.front();
+        breadthFirstSearchQ.pop();
+        tempXQ.pop();
+        tempYQ.pop();
+
+        //for each possible direction
+        if (!(map[tempX][tempY].leftWall) && !discoveredCells[tempX - 1][tempY]) {
+            --tempX;
+            floodFillHelper();
+            ++tempX;
+        }
+        if (!(map[tempX][tempY].downWall) && !discoveredCells[tempX][tempY - 1]) {
+            --tempY;
+            floodFillHelper();
+            ++tempY;
+        }
+        if (!(map[tempX][tempY].rightWall) && !discoveredCells[tempX + 1][tempY]) {
+            ++tempX;
+            floodFillHelper();
+            --tempX;
+        }
+        if (!(map[tempX][tempY].upWall) && !discoveredCells[tempX][tempY + 1]) {
+            ++tempY;
+            floodFillHelper();
+            --tempY;
+        }
+    }
+}
+
+// helper function
+Direction rotateRight(Direction ID)
+{
+    switch (ID){
+        case (UP):
+            return RIGHT;
+        case (DOWN):
+            return LEFT;
+        case (RIGHT):
+            return DOWN;
+        case (LEFT):
+            break;
+    }
+    return UP;
+}
+// getting floodfill data structure value
+uint16_t getFloodFillValue(Direction ID)
+{
+    switch (ID) {
+        case (UP):
+            if (currentY == ROW_NUMBER)
+                return 0xFFFF;
+            return map[currentX][currentY+1].floodFillValue;
+        case (DOWN):
+            if (currentY == 0)
+                return 0xFFFF;
+            return map[currentX][currentY-1].floodFillValue;
+        case (RIGHT):
+            if (currentX == COLUMN_NUMBER)
+                return 0xFFFF;
+            return map[currentX+1][currentY].floodFillValue;
+        case (LEFT):
+            if (currentX == 0)
+                return 0xFFFF;
+            break;
+    }
+    return map[currentX - 1][currentY].floodFillValue;
+}
+// getting best possible next move
+Direction decideMove()
+{
+    floodFill();
+    uint16_t min_floodFillVal = 0xFFFF;
+    Direction bestMove = currentDirection;
+    uint16_t tempFloodFillVal;
+    // move in the path with the smallest number
+    for (int i = 0; i < 4; ++i){
+        tempFloodFillVal = getFloodFillValue(currentDirection);
+        if (min_floodFillVal > tempFloodFillVal && (!checkWall(currentDirection) || i == 2)) {
+            bestMove = currentDirection;
+            min_floodFillVal = tempFloodFillVal;
+        }
+        currentDirection = rotateRight(currentDirection);
+    }
+    return bestMove;
+}
+// helper function
+void updateLocation(Direction ID)
+{
+    switch (ID) {
+        case (UP):
+            ++currentY;
+            break;
+        case (DOWN):
+            --currentY;
+            break;
+        case (RIGHT):
+            ++currentX;
+            break;
+        case (LEFT):
+            --currentX;
+    }
+}
+//and ending here
+
+int main()
+{
+    // setup variables
+    currentDirection = UP;
+    currentX = 0;
+    currentY = 0;
+    for (int i = 0; i < COLUMN_NUMBER; ++i)
+        for (int j = 0; j < ROW_NUMBER; ++j) {
+            map[i][j].upWall = false;
+            map[i][j].downWall = false;
+            map[i][j].rightWall = false;
+            map[i][j].leftWall = false;
+            if (i == COLUMN_NUMBER - 1)
+                map[i][j].rightWall = true;
+            if (i == 0)
+                map[i][j].leftWall = true;
+            if (j == ROW_NUMBER - 1)
+                map[i][j].upWall = true;
+            if (j == 0)
+                map[i][j].downWall = true;
+        }
+
+    // main while loop
+    while (1)
+    {
+        if ((currentDirection + 2) % 4 != UP)
+        if (checkWall(UP)) {
+            if (currentY != ROW_NUMBER - 1)
+                map[currentX][currentY + 1].downWall = true;
+            map[currentX][currentY].upWall = true;
+        }
+        if ((currentDirection + 2) % 4 != DOWN)
+        if (checkWall(DOWN)) {
+            if (currentY != 0)
+                map[currentX][currentY - 1].upWall = true;
+            map[currentX][currentY].downWall = true;
+        }
+        if ((currentDirection + 2) % 4 != RIGHT)
+        if (checkWall(RIGHT)) {
+            if (currentX != COLUMN_NUMBER - 1)
+                map[currentX + 1][currentY].leftWall = true;
+            map[currentX][currentY].rightWall = true;
+        }
+        if ((currentDirection + 2) % 4 != LEFT)
+        if (checkWall(LEFT)) {
+            if (currentX != 0)
+                map[currentX - 1][currentY].rightWall = true;
+            map[currentX][currentY].leftWall = true;
+        }
+        nextDirection = decideMove();
+        moveMouse(nextDirection);
+        currentDirection = nextDirection;
+        updateLocation(currentDirection);
+        if ( isEnd() ) {
+            // TODO problem here
+            currentX = 0;
+            currentY = 0;
+            continue;
+        }
+    }
+    return 0;
+}
